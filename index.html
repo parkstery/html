@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>옙! 만능 이미지 변환기 (Fix)</title>
+    <!-- JSZip & FileSaver (압축 다운로드용) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <!-- AI 배경 제거 라이브러리 (최신 1.3.0 버전으로 변경) -->
+    <script src="https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.3.0/dist/imgly-background-removal.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Jua&family=Nunito:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Nunito', 'Jua', sans-serif;
+            /* 옅은 마룻바닥 배경 스타일 */
+            background-color: #f3e5dc;
+            background-image: 
+                linear-gradient(90deg, rgba(200, 150, 100, 0.1) 1px, transparent 1px),
+                linear-gradient(rgba(200, 150, 100, 0.1) 1px, transparent 1px);
+            background-size: 100px 100%, 100% 100px;
+            box-shadow: inset 0 0 150px rgba(139, 69, 19, 0.1);
+            
+            color: #5d4037;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+            margin: 0;
+            min-height: 100vh;
+        }
+
+        /* 헤더 영역 */
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+        }
+
+        .mascot-img {
+            width: 150px;
+            height: auto;
+            filter: drop-shadow(0 5px 10px rgba(0,0,0,0.15));
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .mascot-img:hover {
+            transform: scale(1.1) rotate(5deg);
+            cursor: pointer;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin: 10px 0;
+            color: #d84315;
+            background: rgba(255, 255, 255, 0.6);
+            padding: 5px 20px;
+            border-radius: 50px;
+            display: inline-block;
+        }
+
+        p.subtitle {
+            font-size: 1.1rem;
+            color: #795548;
+            font-weight: bold;
+        }
+
+        /* 메인 컨테이너 */
+        .container {
+            width: 100%;
+            max-width: 700px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 25px;
+            padding: 40px;
+            box-shadow: 0 15px 35px rgba(109, 76, 65, 0.2);
+            border: 2px solid #fff;
+        }
+
+        /* 드래그 앤 드롭 존 */
+        #drop-zone {
+            border: 3px dashed #ffab91;
+            border-radius: 5px;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #fff8e1;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #drop-zone:hover, #drop-zone.dragover {
+            background-color: #ffccbc;
+            border-color: #ff5722;
+            transform: scale(1.02);
+        }
+
+        #drop-zone p {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #bf360c;
+            pointer-events: none;
+            margin: 10px 0;
+        }
+
+        .info-text {
+            font-size: 0.9rem !important;
+            color: #8d6e63 !important;
+            font-weight: normal !important;
+        }
+
+        #drop-zone span {
+            font-size: 3.5rem;
+            margin-bottom: 5px;
+        }
+
+        /* 옵션 영역 */
+        .options-area {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #efebe9;
+            padding: 10px 20px;
+            border-radius: 15px;
+            gap: 10px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .switch input { opacity: 0; width: 0; height: 0; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider { background-color: #ff7043; }
+        input:focus + .slider { box-shadow: 0 0 1px #ff7043; }
+        input:checked + .slider:before { transform: translateX(24px); }
+
+        .option-label {
+            font-weight: bold;
+            color: #5d4037;
+            font-size: 1.05rem;
+        }
+
+        /* 버튼 스타일 */
+        .btn-group {
+            margin-top: 20px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn:active { transform: scale(0.95); }
+
+        .btn-download-all {
+            background: linear-gradient(45deg, #ff7043, #ff5722);
+            color: white;
+            box-shadow: 0 4px 15px rgba(255, 87, 34, 0.4);
+            display: none;
+        }
+        
+        .btn-download-all:hover {
+            background: linear-gradient(45deg, #ff8a65, #f4511e);
+            box-shadow: 0 6px 20px rgba(255, 87, 34, 0.6);
+        }
+
+        /* 결과 리스트 */
+        #result-list {
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .item {
+            display: flex;
+            align-items: center;
+            background: #fff;
+            padding: 10px 15px;
+            border-radius: 15px;
+            border: 1px solid #efebe9;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            animation: slideUp 0.4s ease-out;
+        }
+
+        .item img {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            object-fit: contain;
+            /* 투명 배경 체크무늬 패턴 */
+            background-color: #fff;
+            background-image: linear-gradient(45deg, #ddd 25%, transparent 25%), 
+                              linear-gradient(-45deg, #ddd 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #ddd 75%), 
+                              linear-gradient(-45deg, transparent 75%, #ddd 75%);
+            background-size: 10px 10px;
+            background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+            margin-right: 15px;
+            border: 1px solid #eee;
+        }
+
+        .item-info { flex-grow: 1; }
+        
+        .item-name {
+            font-weight: bold;
+            font-size: 0.95rem;
+            display: block;
+            color: #3e2723;
+        }
+
+        .item-status {
+            font-size: 0.8rem;
+            color: #4caf50;
+            font-weight: bold;
+        }
+        
+        .badge-webp { color: #d81b60; font-size: 0.8rem; margin-right: 5px; }
+        .badge-png { color: #1976d2; font-size: 0.8rem; margin-right: 5px; }
+        .badge-ai { color: #673ab7; font-size: 0.8rem; margin-right: 5px; }
+
+        .btn-small {
+            background-color: #8d6e63;
+            color: white;
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            border-radius: 20px;
+        }
+
+        .btn-small:hover { background-color: #6d4c41; }
+
+        /* 로딩 인디케이터 */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.85);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            backdrop-filter: blur(5px);
+        }
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #ff7043;
+            border-radius: 50%;
+            width: 60px; height: 60px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        #file-input { display: none; }
+    </style>
+</head>
+<body>
+
+    <!-- 로딩바 -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <h3 style="color:#d84315;">열심히 배경 지우는 중이야옹... 🐾</h3>
+        <p style="color:#666; text-align:center;">
+            첫 실행 시 AI 모델을 다운로드하느라<br>
+            시간이 조금 걸린댜옹! (잠시만 기다려줘!)
+        </p>
+    </div>
+
+    <header>
+        <img src="yep.png" alt="고양이 마스코트" class="mascot-img" onerror="this.src='https://i.postimg.cc/m2p0m0GS/yep.pnghttps://cdn-icons-png.flaticon.com/512/616/616430.png'">
+        <h1>옙! WEBP ↔ PNG 이미지 변환기</h1>
+        <p class="subtitle">WebP ↔️ PNG 자동 변환해준댜옹!(여러 파일도 OK~) 🐾</p>
+    </header>
+
+    <div class="container">
+        <!-- 드래그 앤 드롭 -->
+        <div id="drop-zone">
+            <span>🔄</span>
+            <p>이미지 파일을 여기에 떨어뜨려용!</p>
+            <p class="info-text">WebP는 PNG로, PNG는 WebP로 변환해준댜옹</p>
+        </div>
+        <input type="file" id="file-input" multiple accept="image/webp, image/png, image/jpeg">
+
+        <!-- 옵션: 배경 제거 토글 -->
+        <!-- <div class="options-area">
+            <span class="option-label">✨ 배경 제거하기 (AI)</span>
+            <label class="switch">
+                <input type="checkbox" id="bg-remove-toggle">
+                <span class="slider"></span>
+            </label>
+        </div> -->
+
+        <!-- 전체 다운로드 버튼 -->
+        <div class="btn-group">
+            <button id="download-all-btn" class="btn btn-download-all" onclick="downloadAllFiles()">
+                <span>🎁 모두 다운로드 (ZIP)</span>
+            </button>
+        </div>
+
+        <!-- 변환된 파일 목록 -->
+        <div id="result-list"></div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const resultList = document.getElementById('result-list');
+        const downloadAllBtn = document.getElementById('download-all-btn');
+        const bgRemoveToggle = document.getElementById('bg-remove-toggle');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        let convertedFilesData = [];
+
+        // --- 중요: AI 모델 경로 수정 (1.3.0 버전 & jsDelivr CDN 사용) ---
+        // 이 설정이 있어야 브라우저에서 모델 파일(WASM)을 다운로드할 수 있습니다.
+        const imglyConfig = {
+            // WASM 및 모델 파일이 위치한 정확한 CDN 경로 지정
+            publicPath: "https://cdn.jsdelivr.net/npm/@imgly/background-removal-data@1.3.0/dist/",
+            // 디버그 모드 (문제 발생 시 콘솔에 로그 출력)
+            debug: true,
+            // 진행 상황 콜백
+            progress: (key, current, total) => {
+                console.log(`Downloading ${key}: ${current} of ${total}`);
+            }
+        };
+
+        // --- 이벤트 리스너 ---
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+            dropZone.querySelector('span').innerText = '😺';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+            dropZone.querySelector('span').innerText = '🔄';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            dropZone.querySelector('span').innerText = '🔄';
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        // --- 파일 처리 메인 로직 ---
+        async function handleFiles(files) {
+            const isBgRemove = bgRemoveToggle.checked;
+            
+            // 파일이 없으면 중단
+            if (files.length === 0) return;
+
+            // 배경 제거 모드일 경우 로딩 켜기
+            if (isBgRemove) {
+                loadingOverlay.style.display = 'flex';
+            }
+
+            for (const file of Array.from(files)) {
+                try {
+                    const type = file.type;
+                    const name = file.name.toLowerCase();
+
+                    if (isBgRemove) {
+                        // [AI 배경 제거 모드]
+                        await removeBackgroundAndSave(file);
+                    } else {
+                        // [일반 변환 모드]
+                        if (type === 'image/webp' || name.endsWith('.webp')) {
+                            // WebP -> PNG
+                            await convertImage(file, 'image/png', '.png', 'PNG로 변환');
+                        } 
+                        else if (type === 'image/png' || name.endsWith('.png') || 
+                                 type === 'image/jpeg' || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+                            // PNG/JPG -> WebP
+                            await convertImage(file, 'image/webp', '.webp', 'WebP로 변환');
+                        } 
+                        else {
+                            alert(`${file.name}: 이미지 파일(WebP, PNG, JPG)만 가능해 😿`);
+                        }
+                    }
+                } catch (error) {
+                    console.error(error);
+                    alert(`오류 발생! (${file.name})\n브라우저 콘솔(F12)을 확인해봐!`);
+                }
+            }
+            
+            // 작업 끝, 로딩 끄기 및 초기화
+            loadingOverlay.style.display = 'none';
+            fileInput.value = '';
+        }
+
+        // --- AI 배경 제거 함수 (수정됨) ---
+        async function removeBackgroundAndSave(file) {
+            try {
+                // imgly 라이브러리 호출 (수정된 config 사용)
+                // 첫 실행 시 여기서 10MB~ 정도의 모델을 다운로드하므로 오래 걸림
+                const blob = await imgly.removeBackground(file, imglyConfig);
+                
+                const pngUrl = URL.createObjectURL(blob);
+                const originalName = file.name.substring(0, file.name.lastIndexOf('.'));
+                const newFileName = originalName + '_nobg.png'; 
+
+                // 데이터 저장 (ZIP용)
+                convertedFilesData.push({ name: newFileName, blob: blob });
+                
+                // 결과 UI 추가
+                addResultItem(pngUrl, newFileName, '배경 제거', true);
+                
+                // ZIP 버튼 활성화
+                if (convertedFilesData.length > 1) {
+                    downloadAllBtn.style.display = 'inline-flex';
+                }
+
+            } catch (error) {
+                console.error("AI Background Removal Error:", error);
+                let errorMsg = "배경 제거 실패! 😿\n";
+                
+                if (window.location.protocol === 'file:') {
+                    errorMsg += "\n[원인] 로컬 파일(file://) 보안 문제일 수 있습니다.";
+                    errorMsg += "\nChrome 등을 사용할 때 서버 없이 실행하면 AI 파일 로딩이 차단됩니다.";
+                    errorMsg += "\n\n💡 VS Code의 'Live Server' 확장 프로그램을 써보세요!";
+                } else {
+                    errorMsg += "인터넷 연결을 확인하거나 잠시 후 다시 시도해보세요.";
+                }
+                alert(errorMsg);
+            }
+        }
+
+        // --- 일반 포맷 변환 함수 ---
+        function convertImage(file, targetMimeType, targetExt, msg) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        canvas.toBlob((blob) => {
+                            const pngUrl = URL.createObjectURL(blob);
+                            const originalName = file.name.substring(0, file.name.lastIndexOf('.'));
+                            const newFileName = originalName + targetExt;
+                            
+                            convertedFilesData.push({ name: newFileName, blob: blob });
+                            addResultItem(pngUrl, newFileName, msg, false);
+                            
+                            if (convertedFilesData.length > 1) {
+                                downloadAllBtn.style.display = 'inline-flex';
+                            }
+                            resolve();
+                        }, targetMimeType, 0.9);
+                    };
+                    img.onerror = reject;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function addResultItem(url, fileName, statusMsg, isAI) {
+            const div = document.createElement('div');
+            div.className = 'item';
+            
+            // 배지 아이콘 설정
+            let badge = '';
+            if (isAI) {
+                badge = '<span class="badge-ai">[AI제거]</span>';
+            } else {
+                badge = fileName.endsWith('.webp') 
+                    ? '<span class="badge-webp">[WebP]</span>' 
+                    : '<span class="badge-png">[PNG]</span>';
+            }
+
+            div.innerHTML = `
+                <img src="${url}" alt="preview">
+                <div class="item-info">
+                    <span class="item-name">${badge} ${fileName}</span>
+                    <span class="item-status">✨ ${statusMsg} 완료!</span>
+                </div>
+                <a href="${url}" download="${fileName}" class="btn btn-small">다운로드</a>
+            `;
+            resultList.prepend(div);
+        }
+
+        // --- 전체 다운로드 (ZIP) ---
+        function downloadAllFiles() {
+            if (convertedFilesData.length === 0) return;
+
+            const zip = new JSZip();
+            const folder = zip.folder("converted_images");
+
+            convertedFilesData.forEach(file => {
+                folder.file(file.name, file.blob);
+            });
+
+            zip.generateAsync({ type: "blob" }).then(function(content) {
+                saveAs(content, "cat_converter_images.zip");
+            });
+        }
+    </script>
+</body>
+</html>
